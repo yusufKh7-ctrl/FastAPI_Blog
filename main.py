@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi.exception_handlers import (
     http_exception_handler,
-    request_validation_exception_handler
+    request_validation_exception_handler,
 )
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -21,12 +21,13 @@ from routers import posts, users
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    #Startup code
+    # Startup code
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    #Shutdown code (if needed)
+    # Shutdown code (if needed)
     await engine.dispose()
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -39,10 +40,15 @@ templates = Jinja2Templates(directory="templates")
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
 
+
 @app.get("/", include_in_schema=False, name="home")
 @app.get("/posts", include_in_schema=False, name="posts")
 async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).order_by(models.Post.date_posted.desc()))
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .order_by(models.Post.date_posted.desc())
+    )
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request, "home.html", {"posts": posts, "title": "Home"}
@@ -50,11 +56,13 @@ async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
 
 
 @app.get("/post/{post_id}", include_in_schema=False, name="post_page")
-async def post_page(request: Request, post_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+async def post_page(
+    request: Request, post_id: int, db: Annotated[AsyncSession, Depends(get_db)]
+):
     result = await db.execute(
-        select(models.Post).
-        options(selectinload(models.Post.author)).
-        where(models.Post.id == post_id),
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .where(models.Post.id == post_id),
     )
     post = result.scalars().first()
     if post:
@@ -67,9 +75,7 @@ async def post_page(request: Request, post_id: int, db: Annotated[AsyncSession, 
 
 @app.get("/users/{user_id}/posts", include_in_schema=False, name="user_posts")
 async def user_posts_page(
-    request: Request,
-    user_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)]
+    request: Request, user_id: int, db: Annotated[AsyncSession, Depends(get_db)]
 ):
     result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
@@ -93,21 +99,39 @@ async def user_posts_page(
     )
 
 
+@app.get("/login", include_in_schema=False)
+async def login_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"title": "Login"}
+    )
+    
+@app.get("/register", include_in_schema=False)
+async def register_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "register.html",
+        {"title": "Register"}
+    )
+
+
 # StarletteHTTPException Handler
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def general_http_exception_handler(request: Request, exc: StarletteHTTPException):
     if request.url.path.startswith("/api/"):
         return await http_exception_handler(request, exc)
 
     message = exc.detail if exc.detail else "An error occurred."
-    
+
     return templates.TemplateResponse(
         request,
         "error.html",
         {"status_code": exc.status_code, "title": exc.status_code, "message": message},
         status_code=exc.status_code,
     )
-    
+
+
 # RequestValidationError Handler
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
